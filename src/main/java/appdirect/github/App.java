@@ -1,10 +1,15 @@
 package appdirect.github;
 
 import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.io.PrintWriter;
+import java.io.Writer;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
+import java.util.List;
 
+import org.apache.commons.lang3.StringUtils;
 import org.eclipse.egit.github.core.PullRequest;
 import org.eclipse.egit.github.core.RepositoryId;
 import org.eclipse.egit.github.core.client.PageIterator;
@@ -15,7 +20,10 @@ public class App {
 	private static final String OWNER = "";
 	private static final String REPO = "";
 
-	public static void main(String[] args) throws FileNotFoundException {
+	private static final String[] HEADERS = { "PR Number", "Created At", "Merged At", "Time to Merge", "Target Branch", "Additions",
+			"Deletions", "Changed Files", "Commits", "Comments" };
+
+	public static void main(String[] args) throws IOException {
 		System.out.println("Running ...");
 
 		PullRequestService service = new PullRequestService();
@@ -24,27 +32,46 @@ public class App {
 		RepositoryId repository = new RepositoryId(OWNER, REPO);
 
 		PageIterator<PullRequest> pullRequestPages = service.pagePullRequests(repository, "closed", 100);
-		PrintWriter writer = new PrintWriter("merged_prs.txt");
-		int i = 0;
-		while (pullRequestPages.hasNext()) {
-			System.out.println(String.format("Processing page: %s", i++));
-			Collection<PullRequest> prs = pullRequestPages.next();
-			for (PullRequest pr : prs) {
-				if (pr.getMergedAt() == null) {
-					continue;
+
+		try (PrintWriter writer = new PrintWriter("pull_request_stats.txt")) {
+			writer.println(StringUtils.join(HEADERS, ","));
+
+			int i = 0;
+			int j = 0;
+			int mergedPrs = 0;
+			while (pullRequestPages.hasNext() && i < 20) {
+				System.out.println(String.format("Processing page: %s", i++));
+				Collection<PullRequest> prs = pullRequestPages.next();
+				for (PullRequest pr : prs) {
+					System.out.println(String.format("Processing PR: %s", j++));
+					if (pr.getMergedAt() == null) {
+						continue;
+					}
+					mergedPrs++;
+					pr = service.getPullRequest(repository, pr.getNumber());
+
+					List<String> stats = new ArrayList<>();
+
+					Date createdAt = pr.getCreatedAt();
+					Date mergedAt = pr.getMergedAt();
+					long timeToMerge = mergedAt.getTime() - createdAt.getTime();
+
+					stats.add(String.valueOf(pr.getNumber()));
+					stats.add(String.valueOf(createdAt));
+					stats.add(String.valueOf(mergedAt));
+					stats.add(String.valueOf(timeToMerge));
+					stats.add(pr.getBase().getRef());
+					stats.add(String.valueOf(pr.getAdditions()));
+					stats.add(String.valueOf(pr.getDeletions()));
+					stats.add(String.valueOf(pr.getChangedFiles()));
+					stats.add(String.valueOf(pr.getCommits()));
+					stats.add(String.valueOf(pr.getComments()));
+					
+					writer.println(StringUtils.join(stats, ","));
 				}
-
-				Date createdAt = pr.getCreatedAt();
-				Date mergedAt = pr.getMergedAt();
-
-				long mergeDiff = mergedAt.getTime() - createdAt.getTime();
-
- 				// System.out.println(String.format("PR %d: title=%s,createdAt=%s,mergedAt=%s,mergeDiff=%d", i++, pr.getTitle(), createdAt, mergedAt, mergeDiff));
-//				System.out.println(String.format("%s,%s,%d,%d,%d", createdAt, mergedAt, createdAt.getTime(), mergedAt.getTime(),mergeDiff));
-				writer.println(String.format("%s,%s,%d,%d,%d", createdAt, mergedAt, createdAt.getTime(), mergedAt.getTime(),mergeDiff));
 			}
-		}
 
-		writer.close();
+			System.out.println(String.format("Number of merged PRs: %s", mergedPrs));
+		}
 	}
 }
